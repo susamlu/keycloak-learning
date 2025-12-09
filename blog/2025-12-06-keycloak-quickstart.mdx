@@ -1,0 +1,213 @@
+---
+title: Keycloak快速入门指南
+authors: sam
+tags:
+  [
+    keycloak,
+    authentication,
+    authorization,
+    java,
+    tutorial,
+    quickstart,
+    identity-management,
+  ]
+---
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+{/* https://www.keycloak.org/ */}
+
+Keycloak 是一个开源的身份与访问管理解决方案，提供单点登录（SSO）、社交登录、用户管理、用户联邦及细粒度授权等核心功能，兼容 OpenID Connect、OAuth 2.0、SAML 2.0 等标准协议。本文将带你快速安装并运行一个 Keycloak 实例。
+
+<!-- truncate -->
+
+:::note 本文环境信息
+
+- Keycloak：26.4.7
+- 操作系统：CentOS Stream 9
+- Java 版本：OpenJDK 21
+  :::
+
+## 1. 安装 OpenJDK 21
+
+{/* https://www.keycloak.org/getting-started/getting-started-zip */}
+{/* https://www.keycloak.org/docs/26.4.7/release_notes/ */}
+
+Keycloak 需要 Java 运行环境，26.4.7 版本官方推荐使用 OpenJDK 21（LTS 版本）。需要注意的是，Java 17 已在 Keycloak 25 中被标记为废弃，后续版本将不再支持。
+
+```bash title="安装 OpenJDK 21"
+# 安装 OpenJDK 21（CentOS Stream 9）
+yum install java-21-openjdk-devel -y
+
+# 验证 Java 安装（预期输出含 OpenJDK 21.x 版本）
+java -version
+
+# 配置全局环境变量（对所有用户生效）
+JAVA_HOME_PATH=$(dirname $(dirname $(readlink -f $(which java))))
+[ -d "$JAVA_HOME_PATH" ] && {
+  echo "export JAVA_HOME=$JAVA_HOME_PATH" >> /etc/profile
+  echo "export PATH=\$JAVA_HOME/bin:\$PATH" >> /etc/profile
+  source /etc/profile
+  echo "JAVA_HOME 配置成功：$JAVA_HOME_PATH"
+} || { echo "错误：未找到 Java 21 安装路径，请检查安装是否成功"; }
+
+# 验证 JAVA_HOME 配置（示例：/usr/lib/jvm/java-21-openjdk-21.x，以实际输出为准）
+echo $JAVA_HOME
+```
+
+## 2. 安装并启动 Keycloak
+
+下载并解压 Keycloak 安装包，进入 Keycloak 根目录，启动开发模式的服务器（开发模式使用内置 H2 数据库，适合快速测试）：
+
+```bash title="安装并启动 Keycloak"
+# 下载 Keycloak 26.4.7 版本
+wget https://github.com/keycloak/keycloak/releases/download/26.4.7/keycloak-26.4.7.zip
+
+# 解压安装包
+unzip keycloak-26.4.7.zip
+
+# 进入 Keycloak 根目录
+cd keycloak-26.4.7
+
+# 以开发模式启动 Keycloak 服务器
+bin/kc.sh start-dev
+```
+
+:::tip 成功启动标志
+当终端打印出类似以下的日志信息时，说明 Keycloak 开发模式已成功启动：
+
+```log
+INFO  [io.quarkus] (main) Keycloak 26.4.7 on JVM (powered by Quarkus 3.27.1) started in 14.821s. Listening on: http://0.0.0.0:8080
+INFO  [io.quarkus] (main) Profile dev activated.
+INFO  [io.quarkus] (main) Installed features: [agroal, cdi, hibernate-orm, jdbc-h2, keycloak, narayana-jta, opentelemetry, reactive-routes, rest, rest-jackson, smallrye-context-propagation, vertx]
+```
+
+:::
+
+:::warning 重要提示
+开发模式仅用于测试和学习，生产环境必须使用 `start` 命令启动，并配置 HTTPS、外部数据库（如 PostgreSQL）、高可用集群等安全与高可用相关的配置参数。
+:::
+
+## 3. 配置 SSH 隧道【可选】
+
+:::info 说明
+本节仅适用于在远程服务器上部署 Keycloak，需要在本地访问的场景。如果 Keycloak 已安装在本地，可直接跳过本节，直接访问 [http://localhost:8080](http://localhost:8080)。
+:::
+
+如需在本地通过 localhost 访问远程服务器上的 Keycloak，需要建立 SSH 端口转发。本文以 macOS 系统为例，Windows 系统配置逻辑类似（核心为端口转发），但需适配系统调整具体命令（Windows 可使用 PowerShell 中的 SSH 命令或 PuTTY 工具）：
+
+```bash title="配置 SSH 隧道"
+# 拷贝公钥到服务器（首次连接需要）
+# 前置操作：执行 ssh-keygen 生成 RSA 密钥对（如果还没有）
+# 替换项：将「你的服务器IP」改为实际公网 IP 地址
+ssh-copy-id -i ~/.ssh/id_rsa.pub root@你的服务器IP
+
+# 建立 SSH 隧道（端口转发）
+# 注意：此命令会建立端口转发，需保持终端开启，关闭终端则隧道断开
+# 替换项：将「你的服务器IP」改为实际公网 IP 地址
+# 参数说明：-L 8080:localhost:8080 表示将本地 8080 端口转发到远程服务器的 8080 端口
+# 如需后台运行：ssh -N -f -L 8080:localhost:8080 -o ServerAliveInterval=60 root@你的服务器IP
+ssh -L 8080:localhost:8080 root@你的服务器IP
+```
+
+## 4. 首次访问与管理员配置
+
+:::tip 访问方式
+- **本地安装**：直接访问 [http://localhost:8080](http://localhost:8080)
+- **远程服务器**：完成 SSH 隧道配置后，访问 [http://localhost:8080](http://localhost:8080)
+:::
+
+首次访问时，Keycloak 会引导你创建初始管理员账号（Keycloak 没有默认管理员账号，必须手动创建）：
+
+1. 在「Create an administrative user」页面填写信息：
+   - Username：建议设为 `admin`（便于记忆）
+   - Password：设置强密码（建议至少 8 位，包含大小写字母、数字和特殊字符）
+   - Password Confirmation：重复输入密码
+2. 点击「Create user」完成创建。
+
+### 4.1 登录管理控制台
+
+访问 [http://localhost:8080/admin](http://localhost:8080/admin)，输入刚才创建的管理员账号和密码，即可进入 Keycloak 管理页面，开始后续的 Realm、User、Client 配置。
+
+## 5. 基础配置：Realm、User、Client
+
+Keycloak 的核心逻辑围绕「Realm（领域）」展开，每个 Realm 是独立的安全空间，包含专属的用户、客户端和权限策略。以下是最小化可用配置步骤，完成这些步骤后即可进行基本的认证测试：
+
+### 5.1 创建 Realm
+
+默认的 `master` Realm 仅用于管理 Keycloak 本身，因此我们需要为业务应用创建独立的新 Realm：
+
+1. 在管理控制台左上角，点击「Manage realms」菜单 → 再点击「Create Realm」按钮；
+2. 在「Realm name」中输入 `myrealm`；
+3. 点击「Create」，创建 Realm，系统自动切换到 `myrealm` Realm。
+
+:::note 说明
+Realm 之间完全隔离，每个 Realm 拥有独立的用户、客户端和权限策略。同一用户名可以在不同 Realm 中存在，但它们是不同的用户实体，无法跨 Realm 登录。
+:::
+
+### 5.2 创建 User
+
+在 `myrealm` Realm 中创建测试用户，用于后续登录验证（确保已切换到 `myrealm` Realm）：
+
+1. 左侧菜单点击「Users」→ 再点击「Create new user」按钮；
+2. 填写基础信息（仅 Username 为必填项）：
+   - Username：myuser
+   - First name：foo（可选）
+   - Last name：bar（可选）
+3. 点击「Create」创建用户并进入用户详情页；
+4. 切换到「Credentials」标签 → 点击「Set password」；
+5. 输入密码（例如 `Test@1234`），将「Temporary」选项设为「Off」（关闭临时密码标志，避免首次登录时强制修改密码）；
+6. 点击「Save」→ 弹出确认框，点击「Save password」。
+
+### 5.3 创建 Client
+
+Client 代表需要 Keycloak 保护的应用（如 Web 应用、移动应用等），需先在 Keycloak 中创建客户端才能接入认证流程：
+
+1. 左侧菜单点击「Clients」→ 再点击「Create client」按钮；
+2. 第一步「General settings」：
+   - Client type：选择「OpenID Connect」（默认选项）
+   - Client ID：输入 `myclient`（自定义标识符，需与应用配置中的客户端 ID 保持一致）
+3. 点击「Next」，第二步「Capability config」保持默认（确保「Standard flow」已勾选，这是 OAuth 2.0 授权码流程，适用于浏览器登录）；
+4. 点击「Next」，第三步「Login settings」：
+   - Valid redirect URIs：输入应用的回调地址（测试可填 `https://www.keycloak.org/app/*`，正式环境需填写实际应用的回调地址，支持通配符 `*`）；
+   - Web origins：输入 `https://www.keycloak.org`（测试用，正式环境填写应用访问地址，格式：`https://你的域名`，用于允许 CORS 跨域请求）；
+5. 点击「Save」完成创建。
+
+## 6. 测试认证流程
+
+使用 Keycloak 官方提供的测试应用，验证配置是否生效：
+
+1. 浏览器访问 [https://www.keycloak.org/app/](https://www.keycloak.org/app/)；
+2. 填写配置信息（需与前面创建的配置保持一致）：
+   - Keycloak URL：`http://localhost:8080`
+   - Realm：`myrealm`
+   - Client：`myclient`
+3. 点击「Save」保存配置，然后点击「Sign in」开始登录；
+4. 输入用户名 `myuser` 和密码（例如 `Test@1234`），点击「Sign in」；
+5. 登录成功后，页面会显示用户信息（如用户姓名等），说明认证流程配置正确。
+
+:::tip 常见问题
+- **无法访问**：检查 Keycloak 服务是否已启动，确认端口 8080 未被占用
+- **SSH 隧道断开**：保持 SSH 隧道终端开启，或使用 `-N -f` 参数后台运行
+- **登录失败**：确认 Realm、Client、用户名和密码配置正确
+:::
+
+## 7. 后续探索方向
+
+完成基础配置后，可根据需求扩展 Keycloak 功能：
+
+- **身份提供者：** 配置 Google、GitHub 等社交登录，或对接 LDAP/Active Directory 实现用户联邦；
+- **用户属性与声明：** 配置用户属性映射、自定义 Claims，实现用户信息的灵活传递；
+- **多因素认证（MFA）：** 启用 TOTP、短信、邮件等二次验证方式，提升账号安全性；
+- **会话管理：** 配置会话超时、并发会话控制、单点登出（SLO）等 SSO 核心功能；
+- **权限控制：** 创建 Realm 角色 / 客户端角色，为用户分配权限，实现细粒度授权；
+- **应用集成：** 通过 Keycloak 客户端库（如 Spring Boot、Node.js 等）将认证集成到自有应用中；
+- **主题自定义：** 修改登录页面、管理控制台的样式，适配应用品牌风格；
+- **生产环境优化：** 切换为 PostgreSQL 数据库、配置 HTTPS 证书、启用集群模式。
+
+:::tip 学习建议
+如果这是您第一次接触 Keycloak，建议按顺序完成上述所有步骤，以便全面了解其核心功能。之后可以根据具体需求深入研究特定功能模块。
+:::
+
+如需进一步学习，可参考 Keycloak [官方文档](https://www.keycloak.org/guides) 或 [官方示例代码](https://github.com/keycloak/keycloak-quickstarts)。
