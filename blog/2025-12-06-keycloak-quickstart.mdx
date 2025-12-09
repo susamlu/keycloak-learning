@@ -58,7 +58,7 @@ echo $JAVA_HOME
 
 ## 2. 安装并启动 Keycloak
 
-下载并解压 Keycloak 安装包，进入 Keycloak 根目录，启动开发模式的服务器（开发模式使用内置 H2 数据库，适合快速测试）：
+下载并解压 Keycloak 安装包，进入 Keycloak 根目录，启动开发模式的 Keycloak 服务（开发模式使用内置 H2 数据库，适合快速测试）：
 
 ```bash title="安装并启动 Keycloak"
 # 下载 Keycloak 26.4.7 版本
@@ -70,12 +70,12 @@ unzip keycloak-26.4.7.zip
 # 进入 Keycloak 根目录
 cd keycloak-26.4.7
 
-# 以开发模式启动 Keycloak 服务器
+# 以开发模式启动 Keycloak 服务
 bin/kc.sh start-dev
 ```
 
 :::tip 成功启动标志
-当终端打印出类似以下的日志信息时，说明 Keycloak 开发模式已成功启动：
+当终端打印出类似以下的日志信息时，说明开发模式的 Keycloak 服务已成功启动：
 
 ```log
 INFO  [io.quarkus] (main) Keycloak 26.4.7 on JVM (powered by Quarkus 3.27.1) started in 14.821s. Listening on: http://0.0.0.0:8080
@@ -92,7 +92,7 @@ INFO  [io.quarkus] (main) Installed features: [agroal, cdi, hibernate-orm, jdbc-
 ## 3. 配置 SSH 隧道【可选】
 
 :::info 说明
-本节仅适用于在远程服务器上部署 Keycloak，需要在本地访问的场景。如果 Keycloak 已安装在本地，可直接跳过本节，直接访问 [http://localhost:8080](http://localhost:8080)。
+本节仅适用于在远程服务器上部署 Keycloak，需要在本地访问的场景。如果 Keycloak 已安装在本地，可直接跳过本节，访问 [http://localhost:8080](http://localhost:8080)。
 :::
 
 如需在本地通过 localhost 访问远程服务器上的 Keycloak，需要建立 SSH 端口转发。本文以 macOS 系统为例，Windows 系统配置逻辑类似（核心为端口转发），但需适配系统调整具体命令（Windows 可使用 PowerShell 中的 SSH 命令或 PuTTY 工具）：
@@ -128,7 +128,7 @@ ssh -L 8080:localhost:8080 root@你的服务器IP
 
 ### 4.1 登录管理控制台
 
-访问 [http://localhost:8080/admin](http://localhost:8080/admin)，输入刚才创建的管理员账号和密码，即可进入 Keycloak 管理页面，开始后续的 Realm、User、Client 配置。
+访问 [http://localhost:8080/admin](http://localhost:8080/admin)，输入刚才创建的管理员账号和密码，即可进入 Keycloak 管理界面，开始后续的 Realm、User、Client 配置。
 
 ## 5. 基础配置：Realm、User、Client
 
@@ -140,7 +140,7 @@ Keycloak 的核心逻辑围绕「Realm（领域）」展开，每个 Realm 是�
 
 1. 在管理控制台左上角，点击「Manage realms」菜单 → 再点击「Create Realm」按钮；
 2. 在「Realm name」中输入 `myrealm`；
-3. 点击「Create」，创建 Realm，系统自动切换到 `myrealm` Realm。
+3. 点击「Create」创建 Realm，系统会自动切换到 `myrealm` Realm。
 
 :::note 说明
 Realm 之间完全隔离，每个 Realm 拥有独立的用户、客户端和权限策略。同一用户名可以在不同 Realm 中存在，但它们是不同的用户实体，无法跨 Realm 登录。
@@ -167,11 +167,11 @@ Client 代表需要 Keycloak 保护的应用（如 Web 应用、移动应用等�
 1. 左侧菜单点击「Clients」→ 再点击「Create client」按钮；
 2. 第一步「General settings」：
    - Client type：选择「OpenID Connect」（默认选项）
-   - Client ID：输入 `myclient`（自定义标识符，需与应用配置中的客户端 ID 保持一致）
+   - Client ID：输入 `myclient`（自定义标识符）
 3. 点击「Next」，第二步「Capability config」保持默认（确保「Standard flow」已勾选，这是 OAuth 2.0 授权码流程，适用于浏览器登录）；
 4. 点击「Next」，第三步「Login settings」：
-   - Valid redirect URIs：输入应用的回调地址（测试可填 `https://www.keycloak.org/app/*`，正式环境需填写实际应用的回调地址，支持通配符 `*`）；
-   - Web origins：输入 `https://www.keycloak.org`（测试用，正式环境填写应用访问地址，格式：`https://你的域名`，用于允许 CORS 跨域请求）；
+   - Valid redirect URIs：输入 `https://www.keycloak.org/app/*`（测试用，正式环境填写实际应用的回调地址，支持通配符 `*`）；
+   - Web origins：输入 `https://www.keycloak.org`（测试用，正式环境填写实际应用的访问地址，格式：`https://你的域名`，用于允许 CORS 跨域请求）；
 5. 点击「Save」完成创建。
 
 ## 6. 测试认证流程
@@ -202,9 +202,9 @@ Client 代表需要 Keycloak 保护的应用（如 Web 应用、移动应用等�
 - **多因素认证（MFA）：** 启用 TOTP、短信、邮件等二次验证方式，提升账号安全性；
 - **会话管理：** 配置会话超时、并发会话控制、单点登出（SLO）等 SSO 核心功能；
 - **权限控制：** 创建 Realm 角色 / 客户端角色，为用户分配权限，实现细粒度授权；
-- **应用集成：** 通过 Keycloak 客户端库（如 Spring Boot、Node.js 等）将认证集成到自有应用中；
+- **应用集成：** 通过 Keycloak 官方适配工具（如 Spring Boot 适配器、Node.js SDK 等），将认证、授权能力集成到自有应用中；
 - **主题自定义：** 修改登录页面、管理控制台的样式，适配应用品牌风格；
-- **生产环境优化：** 切换为 PostgreSQL 数据库、配置 HTTPS 证书、启用集群模式。
+- **生产环境优化：** 配置 HTTPS 证书、切换为 PostgreSQL 数据库、启用集群模式。
 
 :::tip 学习建议
 如果这是您第一次接触 Keycloak，建议按顺序完成上述所有步骤，以便全面了解其核心功能。之后可以根据具体需求深入研究特定功能模块。
