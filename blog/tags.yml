@@ -32,3 +32,8 @@ identity-management:
   label: Identity Management
   permalink: /identity-management
   description: 身份管理相关文章
+
+configuration:
+  label: Configuration
+  permalink: /configuration
+  description: 配置相关文章

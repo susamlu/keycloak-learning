@@ -1,0 +1,503 @@
+---
+title: Keycloak 配置指南
+authors: sam
+slug: keycloak-configuration
+tags:
+  [
+    keycloak,
+    configuration,
+    authentication,
+    authorization,
+    java,
+    tutorial,
+    identity-management,
+  ]
+---
+
+{/* https://www.keycloak.org/server/configuration */}
+
+Keycloak 提供了多种灵活的配置方式，支持通过命令行参数、环境变量、配置文件、Java KeyStore 文件等途径进行配置。本文详细介绍 Keycloak 的配置方法、优先级规则以及生产环境的最佳实践。
+
+<!-- truncate -->
+
+## 1. 配置方式与优先级
+
+Keycloak 支持四种配置方式，按优先级从高到低依次为：
+
+1. **命令行参数**
+2. **环境变量**
+3. **配置文件**（`conf/keycloak.conf` 或用户自定义配置文件）
+4. **Java KeyStore 文件**
+
+:::info Java KeyStore 文件说明
+Java KeyStore 是 Java 平台提供的安全存储机制，以加密形式存储密钥、数字证书、密码等敏感条目，整体作为受密码保护的文件，适用于存储数据库密码、证书私钥等敏感配置数据。常见的 KeyStore 类型包括 JKS（Java KeyStore）和 PKCS12。
+:::
+
+当同一个配置选项在多个来源中都有设置时，优先级高的配置会覆盖优先级低的配置。
+
+### 1.1 配置方式示例
+
+以 `db-url` 配置选项为例，以下是不同配置方式的写法：
+
+| 配置方式 | 格式示例 |
+|---------|---------|
+| 命令行参数 | `--db-url=cliValue` |
+| 环境变量 | `KC_DB_URL=envVarValue` |
+| 配置文件 | `db-url=confFileValue` |
+| Java KeyStore 文件 | `kc.db-url=keystoreValue` |
+
+如果同时设置了以上四种方式，实际生效的值为 `cliValue`（命令行参数优先级最高）。
+
+### 1.2 配置格式说明
+
+Keycloak 每个配置源内部有统一的格式规范，这简化了从一个配置源到另一个配置源的键值对转换。该规则同样适用于 SPI（Service Provider Interface）配置选项。
+
+**命令行参数格式**
+```bash
+--<key-with-dashes>=<value>
+```
+
+**环境变量格式**
+```bash
+KC_<key_with_underscores>=<value>
+```
+
+**配置文件格式**
+```conf
+<key-with-dashes>=<value>
+```
+
+**Java KeyStore 文件格式**
+```
+kc.<key-with-dashes>=<value>
+```
+
+:::tip 格式转换规则
+- 命令行参数：使用短横线连接（`--db-url-host`）。
+- 环境变量：使用下划线连接，并添加 `KC_` 前缀（`KC_DB_URL_HOST`）。
+- 配置文件：使用短横线连接（`db-url-host`）。
+- Java KeyStore 文件：使用短横线连接，并添加 `kc.` 前缀（`kc.db-url-host`）。
+:::
+
+## 2. 查看配置选项
+
+### 2.1 查看命令行参数
+
+使用 `--help` 参数查看所有可用的命令行配置选项：
+
+```bash
+bin/kc.sh start --help
+```
+
+### 2.2 查看全部配置
+
+访问 [Keycloak 全部配置页面](https://www.keycloak.org/server/all-config) 查看所有可用的配置选项及其说明。
+
+## 3. 配置文件使用
+
+### 3.1 默认配置文件
+
+Keycloak 默认从 `conf/keycloak.conf` 文件读取配置。该文件在首次安装时仅包含注释形式的生产环境推荐配置示例。
+
+### 3.2 引用环境变量
+
+在 `keycloak.conf` 文件中，可以使用 `${ENV_VAR}` 语法引用环境变量：
+
+```conf
+db-url-host=${MY_DB_HOST}
+```
+
+若环境变量未定义，可通过冒号分隔的方式为占位符指定默认值：
+
+```conf
+db-url-host=${MY_DB_HOST:mydb}
+```
+
+### 3.3 指定自定义配置文件
+
+启动时可以使用 `--config-file` 或 `-cf` 参数指定自定义配置文件：
+
+```bash
+bin/kc.sh --config-file=/path/to/myconfig.conf start
+```
+
+指定自定义配置文件后，Keycloak 将从该文件读取配置，而不是从默认的 conf/keycloak.conf 读取。
+
+## 4. Java KeyStore 文件配置
+
+对于数据库密码等敏感信息，建议通过 KeyStore 文件安全存储。
+
+### 4.1 创建 KeyStore 文件
+
+使用 `keytool` 命令创建 KeyStore 文件并存储密码：
+
+```bash
+keytool -importpass -alias kc.db-password -keystore keystore.p12 \
+  -storepass keystorepass -storetype PKCS12 -v
+```
+
+执行命令后，系统会提示输入要存储的密码值（即 `kc.db-password` 配置选项的值）。
+
+### 4.2 使用 KeyStore 文件启动
+
+创建 KeyStore 文件后，启动时指定 KeyStore 文件路径、密码及类型：
+
+```bash
+bin/kc.sh start \
+  --config-keystore=/path/to/keystore.p12 \
+  --config-keystore-password=keystorepass \
+  --config-keystore-type=PKCS12
+```
+
+:::warning 安全提示
+KeyStore 中的密钥需要使用 PBE（Password-Based Encryption，基于密码的加密）算法存储。
+
+**PBE 工作原理：**
+- PBE 使用 KeyStore 密码（`-storepass` 参数指定的密码）和随机盐值。
+- 通过密钥派生函数（如 PBKDF2）生成加密密钥。
+- 使用生成的密钥对敏感数据（如数据库密码）进行加密存储。
+
+**安全优势：**
+- 即使 KeyStore 文件被获取，没有 KeyStore 密码也无法解密其中的敏感信息。
+- 使用随机盐值和多次迭代，增加暴力破解的难度。
+- `keytool -importpass` 命令会自动使用 PBE 算法加密存储的密码。
+
+默认 KeyStore 类型为 PKCS12。建议将 KeyStore 文件权限设置为仅所有者可读。
+:::
+
+## 5. Quarkus 属性配置
+
+Keycloak 基于 Quarkus 框架构建。对于 Keycloak 未提供专属配置选项的功能，可直接使用 Quarkus 原生配置属性进行补充配置。
+
+### 5.1 使用 Quarkus 属性
+
+1. 在 `conf` 目录下创建 `quarkus.properties` 文件；
+2. 在该文件中定义所需的 Quarkus 属性。
+
+:::info 注意事项
+- 尽量避免直接使用 Quarkus 属性，因为它们不受 Keycloak 官方支持。
+- 如果必须使用，建议先提交功能增强请求。
+- 只能使用 Quarkus 文档中定义的扩展子集。
+- Quarkus 文档中带锁图标的是构建时属性，需要在 `build` 命令中设置。
+- 不带锁图标的是运行时属性，可以在启动时设置。
+
+更多 Quarkus 配置属性信息，请参考 [Quarkus 全部配置选项](https://quarkus.io/guides/all-config)。
+:::
+
+### 5.2 Quarkus 配置优先级
+
+若某个 Quarkus 属性已被 Keycloak 映射（例如 `quarkus.http.port` 对应 Keycloak 的 `http-port`），则在 `quarkus.properties` 中定义该属性不会生效，因为 Keycloak 配置值的优先级更高。
+
+:::info 如何判断属性是否被映射
+官方文档并未提供完整的映射属性列表，但明确说明某些 Quarkus 属性（如 `quarkus.http.port` 等基本属性）已被映射。判断某个 Quarkus 属性是否被映射的方法：
+
+1. **查看 Keycloak 配置选项**：访问 [Keycloak 全部配置页面](https://www.keycloak.org/server/all-config)，如果某个 Quarkus 属性在 Keycloak 中有对应的配置选项，则已被映射。
+2. **常见映射示例**：
+   - `quarkus.http.port` → `http-port`
+   - `quarkus.datasource.*` → `db-*` 系列配置选项
+   - 其他核心 HTTP、数据库相关的 Quarkus 属性通常都有对应的 Keycloak 配置选项。
+
+如果某个 Quarkus 属性在 Keycloak 配置中找不到对应的配置选项，则可以在 `quarkus.properties` 中使用，但建议优先使用 Keycloak 提供的配置选项。
+:::
+
+## 6. 特殊字符处理
+
+### 6.1 表达式转义
+
+Keycloak 支持表达式评估（如通过 `${ENV_VAR}` 解析环境变量）。若配置值中需要保留字面量 `$` 字符（避免被解析为表达式），需使用反斜杠 `\` 进行转义（如 `\$`）：
+
+**命令行参数（bash 单引号）**
+```bash
+--db-password='my\$\$password'
+```
+
+**命令行参数（bash 双引号）**
+```bash
+--db-password="my\\$\\$password"
+```
+
+**配置文件**
+```conf
+db-password=my\\$\\$password
+```
+
+### 6.2 Windows 路径处理
+
+在 Windows 系统中指定文件路径时，反斜杠 `\` 需要转义：
+
+```conf
+# 方式1：转义反斜杠
+certificate-file=C:\\path\\to\\file
+
+# 方式2：使用正斜杠（推荐，无需转义）
+certificate-file=C:/path/to/file
+```
+
+### 6.3 PowerShell 特殊字符
+
+在 PowerShell 中，如果值包含逗号等特殊字符，需要使用单引号包裹双引号：
+
+```powershell
+.\kc.bat start --log-level='"INFO,org.hibernate:debug"'
+```
+
+:::info PowerShell 引号处理说明
+PowerShell 处理引号的逻辑与 cmd、bash 等 Shell 不同：它会在将参数传递给 `kc.bat` 脚本前解析带引号的字符串，并移除外层引号。若未用单引号包裹，配置值中的逗号 `,` 会被 PowerShell 解析为参数分隔符，导致配置值被错误拆分。因此需通过 “单引号包裹双引号” 保留配置值完整结构，确保含特殊字符的配置值正确传递给 Keycloak。
+:::
+
+### 6.4 环境变量键名特殊字符处理
+
+配置键名中的非字母数字字符在对应的环境变量键名中必须转换为下划线（`_`）。
+
+**基本转换规则：**
+
+环境变量键名转换回配置键名时，会将名称小写化，并将下划线（`_`）替换为短横线（`-`）。但日志类别配置是例外情况。
+
+**日志通配符特殊处理：**
+
+日志类别配置中的下划线（`_`）会被替换为点号（`.`）而不是短横线（`-`）。这是因为日志类别通常是 Java 包名或类名，使用点号（`.`）作为分隔符。
+
+**自动映射问题：**
+
+自动映射可能不会保留预期的键名。例如：
+
+```bash
+# 配置键名
+kc.log-level-package.class_name
+
+# 对应的环境变量键名
+KC_LOG_LEVEL_PACKAGE_CLASS_NAME
+
+# 自动映射回配置键名时
+kc.log-level-package.class.name  # 注意：class_name 变成了 class.name
+```
+
+这个自动映射结果（`kc.log-level-package.class.name`）与原始意图（`kc.log-level-package.class_name`）不匹配。
+
+**解决方案：**
+
+当自动映射无法保留预期键名时，可以使用以下两种方法解决：
+
+**方法1：在配置文件中引用环境变量**
+
+在 `keycloak.conf` 文件中创建配置条目，引用自定义的环境变量：
+
+```conf
+# keycloak.conf
+kc.log-level-package.class_name=${CLASS_NAME_LEVEL}
+```
+
+然后设置对应的环境变量：
+
+```bash
+export CLASS_NAME_LEVEL=debug
+```
+
+**方法2：使用键值对环境变量**
+
+在不方便修改 `keycloak.conf` 的情况下，可以使用一对环境变量：
+
+```bash
+# 格式：KC_UNIQUEIFIER=value 和 KCKEY_UNIQUEIFIER=key
+export KC_MYKEY=debug
+export KCKEY_MYKEY=log-level-package.class_name
+
+# 或者使用更具体的名称
+export KC_LOG_LEVEL_PACKAGE_CLASS_NAME=debug
+export KCKEY_LOG_LEVEL_PACKAGE_CLASS_NAME=log-level-package.class_name
+```
+
+:::note 转换规则总结
+- **一般规则**：配置键名中的非字母数字字符在环境变量中转换为下划线（`_`）。
+- **反向转换**：环境变量转换回配置键名时，下划线（`_`）替换为短横线（`-`）。
+- **日志类别例外**：日志类别中的下划线（`_`）替换为点号（`.`），因为日志类别通常是 Java 包名或类名。
+- **自动映射限制**：当自动映射无法保留预期键名时，使用配置文件引用或键值对环境变量。
+:::
+
+## 7. 开发模式配置
+
+### 7.1 启动开发模式
+
+```bash
+bin/kc.sh start-dev
+```
+
+### 7.2 开发模式默认配置
+
+开发模式下的默认配置包括：
+
+- **HTTP 启用**：允许 HTTP 访问（不强制 HTTPS）。
+- **主机名验证禁用**：无需强制配置主机名（hostname）。
+- **严格主机名解析禁用**：允许通过 IP 地址访问。
+- **数据库**：默认使用内置 H2 内存数据库。
+- **缓存**：默认使用本地缓存（禁用分布式缓存）。
+- **主题缓存/模板缓存**：禁用。
+
+:::warning 重要提示
+开发模式仅用于测试和学习。生产环境必须使用 `start` 命令启动，并配置 HTTPS、外部数据库（如 PostgreSQL）、高可用集群等安全与高可用相关的配置选项。
+:::
+
+## 8. 生产模式配置
+
+### 8.1 启动生产模式
+
+```bash
+bin/kc.sh start
+```
+
+### 8.2 生产模式默认配置
+
+生产模式遵循 "默认安全" 原则，默认配置包括：
+
+- **HTTP 禁用**：传输层强制使用 HTTPS 保障安全。
+- **主机名配置**：必须显式配置主机名（hostname）。
+- **HTTPS/TLS 配置**：必须完成 HTTPS/TLS 相关配置。
+
+:::info 生产环境要求
+生产模式下，如果不配置主机名和 HTTPS/TLS，Keycloak 将无法启动并显示错误。这是 Keycloak 的安全设计，确保生产环境的安全性。
+:::
+
+### 8.3 生产环境配置示例
+
+在 `conf/keycloak.conf` 文件中配置生产环境所需的参数：
+
+```conf
+# 数据库配置
+db=postgres
+db-url-host=keycloak-postgres
+db-username=keycloak
+db-password=change_me
+
+# 主机名配置
+hostname=mykeycloak.acme.com
+
+# HTTPS 配置
+https-certificate-file=/path/to/certificate.pem
+https-certificate-key-file=/path/to/key.pem
+```
+
+更多生产环境配置指南，请参考 [Keycloak 生产环境配置](https://www.keycloak.org/server/configuration-production)。
+
+## 9. 初始管理员创建
+
+### 9.1 Web 界面创建
+
+首次通过 localhost 访问 Keycloak 时，系统会引导你通过 Web 界面创建初始管理员账号。
+
+### 9.2 环境变量创建
+
+也可以通过环境变量创建初始管理员：
+
+```bash
+export KC_BOOTSTRAP_ADMIN_USERNAME=admin
+export KC_BOOTSTRAP_ADMIN_PASSWORD=your_password
+bin/kc.sh start-dev
+```
+
+Keycloak 在首次启动时会解析这些环境变量，并创建具有管理员权限的初始用户。
+
+:::note 说明
+- 如果初始管理员已存在，即使环境变量仍然存在，Keycloak 也会忽略这些值并正常启动。
+- 创建初始管理员后，可以使用管理控制台或 `kcadm.sh` 命令行工具创建其他用户。
+:::
+
+## 10. 优化启动过程
+
+### 10.1 构建优化镜像
+
+默认情况下，`start` 或 `start-dev` 命令会在启动前自动执行 `build` 命令。为了优化启动时间（特别是在容器化环境中），建议显式执行 `build` 命令：
+
+```bash
+# 第一步：执行构建
+bin/kc.sh build --db=postgres
+
+# 第二步：使用优化参数启动
+bin/kc.sh start --optimized
+```
+
+### 10.2 构建选项与配置选项
+
+Keycloak 区分两种类型的选项：
+
+- **构建选项**：在 `build` 命令中使用，会被持久化到优化后的构建产物中。
+- **配置选项**：在启动时使用，不会被持久化到构建产物中。
+
+:::info 如何区分构建选项和配置选项
+在 [Keycloak 全部配置页面](https://www.keycloak.org/server/all-config) 中，构建选项会标记有**工具图标**，而配置选项没有图标标记。你也可以通过以下命令查看构建选项：
+
+```bash
+bin/kc.sh build --help
+```
+
+或者访问 [Keycloak 全部配置页面](https://www.keycloak.org/server/all-config) 并筛选显示构建选项（标记有工具图标的选项）。
+:::
+
+:::warning 安全提示
+所有构建选项都会以明文形式持久化。不要在构建选项中存储任何敏感数据（如密码）。敏感数据应使用配置选项，并通过 KeyStore 配置源存储。
+:::
+
+### 10.3 优化示例
+
+完整的优化流程示例：
+
+```bash
+# 1. 设置构建选项（数据库类型）
+bin/kc.sh build --db=postgres
+
+# 2. 在配置文件中设置运行时配置
+# conf/keycloak.conf
+db-url-host=keycloak-postgres
+db-username=keycloak
+db-password=change_me
+hostname=mykeycloak.acme.com
+https-certificate-file=/path/to/cert.pem
+
+# 3. 使用优化参数启动
+bin/kc.sh start --optimized
+```
+
+### 10.4 优化效果
+
+通过显式执行构建并使用 `--optimized` 参数，可获得以下优化效果：
+
+- **更快的启动时间**：避免启动时重复执行构建过程，启动耗时显著缩短。
+- **更低的资源消耗**：优化后的构建产物减少运行时 CPU 和内存开销。
+- **更稳定的性能**：配置在构建阶段固化，消除运行时配置解析、动态调整带来的性能波动。
+
+:::tip 最佳实践
+在 Kubernetes、OpenShift 等容器化环境中，建议将 `build` 步骤纳入 CI/CD 流水线作为独立环节执行，实现 "构建与运行分离"，而非在容器启动时执行构建。这样可以进一步提升部署效率和系统稳定性。
+:::
+
+## 11. 配置最佳实践
+
+### 11.1 配置源选择建议
+
+- **敏感数据**：使用 Java KeyStore 文件存储（如数据库密码、证书密钥）。
+- **非敏感数据**：使用配置文件或环境变量。
+- **临时覆盖**：使用命令行参数。
+- **构建选项**：仅用于非敏感的构建时配置（如数据库类型）。
+
+### 11.2 配置文件组织
+
+- 使用 `conf/keycloak.conf` 作为主配置文件。
+- 对于不同环境，使用 `--config-file` 指定不同的配置文件。
+- 在配置文件中使用环境变量引用，提高配置的灵活性。
+
+### 11.3 安全建议
+
+- 不要在构建选项中存储敏感信息。
+- 使用 Java KeyStore 文件存储密码和密钥。
+- 生产环境必须配置 HTTPS/TLS。
+- 定期更新 Keycloak 版本和安全补丁。
+
+## 12. 参考资料
+
+- [Keycloak 配置文档](https://www.keycloak.org/server/configuration)
+- [Keycloak 全部配置选项](https://www.keycloak.org/server/all-config)
+- [Keycloak 生产环境配置](https://www.keycloak.org/server/configuration-production)
+- [Quarkus 全部配置选项](https://quarkus.io/guides/all-config)
+
+:::tip 学习建议
+建议先完成 [Keycloak 快速入门指南](/blog/keycloak-quickstart)，熟悉基本操作后再深入学习配置相关内容。
+:::
+
